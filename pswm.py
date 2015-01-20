@@ -10,6 +10,9 @@ STRONG_PSW_STRENGH = 'strong'
 PSWM_FILE = '/home/sheny3/.pswm'
 PSWM_FILE_TEMP = '/home/sheny3/.pswm.tmp'
 
+class NoPasswordRecordsException(Exception):
+    pass
+
 def parse_arguments():
     arg_parser = argparse.ArgumentParser()
     
@@ -41,7 +44,7 @@ def parse_arguments():
         )
     generate_action_parser.set_defaults(func=generate_password_action)
 
-    get_action_parser = action_subparsers.add_parser('get')
+    get_action_parser = action_subparsers.add_parser('getpsw')
     get_action_parser.add_argument(
         '-a', '--account', default='me',
         help='account name',
@@ -51,6 +54,17 @@ def parse_arguments():
         help='domain name of the account',
         )
     get_action_parser.set_defaults(func=get_password_action)
+
+    setpsw_action_parser = action_subparsers.add_parser('setpsw')
+    setpsw_action_parser.add_argument(
+        '-a', '--account', default='me',
+        help='account name',
+        )
+    setpsw_action_parser.add_argument(
+        '-d', '--domain', required=True,
+        help='domain name of the account',
+        )
+    setpsw_action_parser.set_defaults(func=set_password_action)
 
     return arg_parser.parse_args()
 
@@ -84,8 +98,8 @@ def update_content_in_file(account_hash, psw_cipher_text):
     with open(PSWM_FILE, 'r') as old_file, open(PSWM_FILE_TEMP, 'w') as new_file:
         for line in old_file:
             if not line.startswith(account_hash.encode('hex')):
-                new_file.write(line)
-        new_file.write(account_hash.encode('hex') + psw_cipher_text.encode('hex'))
+                new_file.write(line.strip() + '\n')
+        new_file.write(account_hash.encode('hex') + psw_cipher_text.encode('hex') + '\n')
     shutil.copyfile(PSWM_FILE_TEMP, PSWM_FILE)
 
 def get_password_record_by_account(account_hash):
@@ -96,26 +110,31 @@ def get_password_record_by_account(account_hash):
             pswm_file.close()
             return line.strip()[64:].decode('hex')
     pswm_file.close()
-    raise Exception('No password for such account')
+    raise NoPasswordRecordsException('No password for such account')
+
+def generate_account(account_name, account_domain):
+    return account_name + '@' + account_domain
 
 def generate_account_hash(account_name, account_domain):
     from Crypto.Hash import SHA256
 
     account_hash = SHA256.new()
-    account_hash.update(account_name + '@' + account_domain)
+    account_hash.update(generate_account(account_name, account_domain))
     return account_hash.digest()
 
-def generate_password_action(args, one_password):
+def persist_psw(account_name, account_domain, psw, one_password):
     from Crypto.Cipher import AES
 
-    psw = generate_password(args.strength, args.length)
     BS = AES.block_size
     pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
     update_content_in_file(
-        generate_account_hash(args.account, args.domain),
+        generate_account_hash(account_name, account_domain),
         AES.new(one_password).encrypt(pad(psw)),
         )
 
+def generate_password_action(args, one_password):
+    psw = generate_password(args.strength, args.length)
+    persist_psw(args.account, args.domain, psw, one_password)
     print psw
 
 def get_password_action(args, one_password):
@@ -129,14 +148,22 @@ def get_password_action(args, one_password):
         print unpad(psw_cipher.decrypt(
             get_password_record_by_account(
                 generate_account_hash(args.account, args.domain))))
-    except Exception, e:
-        print 'No password record for account %s' % (args.account + '@' + args.domain)
+    except NoPasswordRecordsException, e:
+        print 'No password record for account %s' % generate_account(args.account, args.domain)
+
+def set_password_action(args, one_password):
+    first_input = 'first'
+    second_input = 'second'
+    while first_input != second_input:
+        first_input = getpass.getpass('New Password for %s:' % generate_account(args.account, args.domain))
+        second_input = getpass.getpass('Password Again:')
+    persist_psw(args.account, args.domain, first_input, one_password)
 
 def main():
     from Crypto.Hash import MD5
 
     args = parse_arguments()
-    one_password = getpass.getpass()
+    one_password = getpass.getpass('One Password:')
     password_hash = MD5.new()
     password_hash.update(one_password)
     args.func(args, password_hash.digest())
