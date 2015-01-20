@@ -8,6 +8,7 @@ MEDIUM_PSW_STRENGTH = 'medium'
 STRONG_PSW_STRENGH = 'strong'
 
 PSWM_FILE = '/home/sheny3/.pswm'
+PSWM_FILE_TEMP = '/home/sheny3/.pswm.tmp'
 
 def parse_arguments():
     arg_parser = argparse.ArgumentParser()
@@ -79,16 +80,21 @@ def generate_password(psw_strength, psw_length):
     return ''.join(psw)
 
 def update_content_in_file(account_hash, psw_cipher_text):
-    pswm_file = open(PSWM_FILE, 'a')
-    pswm_file.write(account_hash.encode('hex') + psw_cipher_text.encode('hex') + '\n')
-    pswm_file.close()
+    import shutil
+    with open(PSWM_FILE, 'r') as old_file, open(PSWM_FILE_TEMP, 'w') as new_file:
+        for line in old_file:
+            if not line.startswith(account_hash.encode('hex')):
+                new_file.write(line)
+        new_file.write(account_hash.encode('hex') + psw_cipher_text.encode('hex'))
+    shutil.copyfile(PSWM_FILE_TEMP, PSWM_FILE)
 
 def get_password_record_by_account(account_hash):
     pswm_file = open(PSWM_FILE, 'r')
+    pswm_file.readline()
     for line in pswm_file:
         if line[:64] == account_hash.encode('hex'):
             pswm_file.close()
-            return line[64:-1].decode('hex')
+            return line.strip()[64:].decode('hex')
     pswm_file.close()
     raise Exception('No password for such account')
 
