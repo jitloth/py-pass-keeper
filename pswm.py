@@ -1,13 +1,13 @@
 #!/usr/bin/python
 
 import argparse
-import string
-import random
-import itertools
+import getpass
 
 WEAK_PSW_STRENGTH = 'weak'
 MEDIUM_PSW_STRENGTH = 'medium'
 STRONG_PSW_STRENGH = 'strong'
+
+PSWM_FILE = '/home/sheny3/.pswm'
 
 def parse_arguments():
     arg_parser = argparse.ArgumentParser()
@@ -16,9 +16,8 @@ def parse_arguments():
     action_subparsers = arg_parser.add_subparsers(title='pswm actions')
 
     generate_action_parser = action_subparsers.add_parser('generate')
-    generate_action_parser.add_argument('account')
     generate_action_parser.add_argument(
-        '-l', '--length', type=int, default=8,
+        '-l', '--length', type=int, default=16,
         help='set the password length',
         )
     generate_action_parser.add_argument(
@@ -31,14 +30,34 @@ def parse_arguments():
         default=STRONG_PSW_STRENGH,
         help='set the password strength',
         )
+    generate_action_parser.add_argument(
+        '-a', '--account', default='me',
+        help='account name',
+        )
+    generate_action_parser.add_argument(
+        '-d', '--domain', required=True,
+        help='domain name of the account',
+        )
     generate_action_parser.set_defaults(func=generate_password_action)
 
     get_action_parser = action_subparsers.add_parser('get')
-    get_action_parser.add_argument('account')
+    get_action_parser.add_argument(
+        '-a', '--account', default='me',
+        help='account name',
+        )
+    get_action_parser.add_argument(
+        '-d', '--domain', required=True,
+        help='domain name of the account',
+        )
+    get_action_parser.set_defaults(func=get_password_action)
 
     return arg_parser.parse_args()
 
 def generate_password(psw_strength, psw_length):
+    import string
+    import random
+    import itertools
+
     psw = list()
 
     if psw_strength == WEAK_PSW_STRENGTH:
@@ -56,24 +75,65 @@ def generate_password(psw_strength, psw_length):
         psw.append(all_char_set[random.randint(0, len(all_char_set) - 1)])
 
     random.shuffle(psw)
-    
+
     return ''.join(psw)
 
-def format_account(input_account_string):
-    account_info = input_account_string.split('@')
-    account_name = 'me'
-    if len(account_info) > 1 and account_info[0] != '':
-        account_name = account_info[0]
-    return account_name + '@' + account_info[-1]
+def update_content_in_file(account_hash, psw_cipher_text):
+    pswm_file = open(PSWM_FILE, 'a')
+    pswm_file.write(account_hash.encode('hex') + psw_cipher_text.encode('hex') + '\n')
+    pswm_file.close()
 
-def generate_password_action(args):
+def get_password_record_by_account(account_hash):
+    pswm_file = open(PSWM_FILE, 'r')
+    for line in pswm_file:
+        if line[:64] == account_hash.encode('hex'):
+            pswm_file.close()
+            return line[64:-1].decode('hex')
+    pswm_file.close()
+    raise Exception('No password for such account')
+
+def generate_account_hash(account_name, account_domain):
+    from Crypto.Hash import SHA256
+
+    account_hash = SHA256.new()
+    account_hash.update(account_name + '@' + account_domain)
+    return account_hash.digest()
+
+def generate_password_action(args, one_password):
+    from Crypto.Cipher import AES
+
     psw = generate_password(args.strength, args.length)
-    account = format_account(args.account)
-    print account, psw
+    BS = AES.block_size
+    pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
+    update_content_in_file(
+        generate_account_hash(args.account, args.domain),
+        AES.new(one_password).encrypt(pad(psw)),
+        )
+
+    print psw
+
+def get_password_action(args, one_password):
+    from Crypto.Cipher import AES
+
+    BS = AES.block_size
+    unpad = lambda s: s[0:-ord(s[-1])]
+    psw_cipher = AES.new(one_password)
+
+    try:
+        print unpad(psw_cipher.decrypt(
+            get_password_record_by_account(
+                generate_account_hash(args.account, args.domain))))
+    except Exception, e:
+        print 'No password record for account %s' % (args.account + '@' + args.domain)
 
 def main():
+    from Crypto.Hash import MD5
+
     args = parse_arguments()
-    args.func(args)
+    one_password = getpass.getpass()
+    password_hash = MD5.new()
+    password_hash.update(one_password)
+    args.func(args, password_hash.digest())
 
 if '__main__' == __name__:
     main()
