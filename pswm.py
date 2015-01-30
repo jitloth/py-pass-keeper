@@ -13,6 +13,68 @@ PSWM_FILE_TEMP = '/home/sheny3/.pswm.tmp'
 class NoPasswordRecordsException(Exception):
     pass
 
+class PSWMNotInitializedException(Exception):
+    pass
+
+class AuthorizationCheckFailedException(Exception):
+    pass
+
+class BasicAction(object):
+    PSWM_FILE = '/home/sheny3/.pswm'
+    PSWM_FILE_TEMP = '/home/sheny3/.pswm.tmp'
+
+    def act(self, args):
+        import os
+
+        if os.path.exists(self.PSWM_FILE):
+            hashed_one_pass = self.__authorize()
+            self._act_if_inited(one_pass, args)
+        else:
+            self._act_if_not_inited(args)
+
+    def _act_if_not_inited(self, args):
+        raise PSWMNotInitializedException('PSWM is not initialized')
+
+    def _act_if_inited(self, one_pass, args):
+        pass
+
+    def _get_new_password_with_double_check(self):
+        first_input = 'first_input'
+        secound_input = 'second_input'
+        while first_input != secound_input:
+            first_input = getpass.getpass('Please enter new password:')
+            second_input = getpass.getpass('New password again:')
+        return first_input
+
+    def __get_one_password_hash(self):
+        from Crypto.Hash import MD5
+
+        password = getpass.getpass('One password:')
+        md5_hash = MD5.new()
+        md5_hash.update(password)
+        return md5_hash.digest()
+
+    def __authorize(self):
+        password_hash = ''
+        with open(self.PSWM_FILE, 'r') as pswm_file:
+            stored_password_hash = pswm_file.readline().strip()
+            if self.__get_one_password_hash() \
+                    != stored_password_hash.decode('hex'):
+                raise AuthorizationCheckFailedException(
+                    'Authorization check failed')
+            password_hash = stored_password_hash.decode('hex')
+        return password_hash
+
+class PSWMInitAction(BasicAction):
+    def _act_if_not_inited(self, args):
+        pass
+
+    def _act_if_inited(self, one_pass, args):
+        pass
+
+    def __init_pswm(self, args):
+        pass
+
 def parse_arguments():
     arg_parser = argparse.ArgumentParser()
     
@@ -22,8 +84,7 @@ def parse_arguments():
     generate_action_parser = action_subparsers.add_parser('generate')
     generate_action_parser.add_argument(
         '-l', '--length', type=int, default=16,
-        help='set the password length',
-        )
+        help='set the password length')
     generate_action_parser.add_argument(
         '-s', '--strength',
         choices=[
@@ -32,38 +93,31 @@ def parse_arguments():
             STRONG_PSW_STRENGH,
             ],
         default=STRONG_PSW_STRENGH,
-        help='set the password strength',
-        )
+        help='set the password strength')
     generate_action_parser.add_argument(
         '-a', '--account', default='me',
-        help='account name',
-        )
+        help='account name')
     generate_action_parser.add_argument(
         '-d', '--domain', required=True,
-        help='domain name of the account',
-        )
+        help='domain name of the account')
     generate_action_parser.set_defaults(func=generate_password_action)
 
     get_action_parser = action_subparsers.add_parser('getpsw')
     get_action_parser.add_argument(
         '-a', '--account', default='me',
-        help='account name',
-        )
+        help='account name')
     get_action_parser.add_argument(
         '-d', '--domain', required=True,
-        help='domain name of the account',
-        )
+        help='domain name of the account')
     get_action_parser.set_defaults(func=get_password_action)
 
     setpsw_action_parser = action_subparsers.add_parser('setpsw')
     setpsw_action_parser.add_argument(
         '-a', '--account', default='me',
-        help='account name',
-        )
+        help='account name')
     setpsw_action_parser.add_argument(
         '-d', '--domain', required=True,
-        help='domain name of the account',
-        )
+        help='domain name of the account')
     setpsw_action_parser.set_defaults(func=set_password_action)
 
     return arg_parser.parse_args()
