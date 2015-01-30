@@ -2,13 +2,14 @@
 
 import argparse
 import getpass
+import os
 
 WEAK_PSW_STRENGTH = 'weak'
 MEDIUM_PSW_STRENGTH = 'medium'
 STRONG_PSW_STRENGH = 'strong'
 
-PSWM_FILE = '/home/sheny3/.pswm'
-PSWM_FILE_TEMP = '/home/sheny3/.pswm.tmp'
+PSWM_FILE = os.path.expanduser('~') + '/.pswm'
+PSWM_FILE_TEMP = PSWM_FILE + '.tmp'
 
 class NoPasswordRecordsException(Exception):
     pass
@@ -20,14 +21,14 @@ class AuthorizationCheckFailedException(Exception):
     pass
 
 class BasicAction(object):
-    PSWM_FILE = '/home/sheny3/.pswm'
-    PSWM_FILE_TEMP = '/home/sheny3/.pswm.tmp'
+    PSWM_FILE = os.path.expanduser('~') + '/.pswm'
+    PSWM_FILE_TEMP = PSWM_FILE + '.tmp'
 
     def act(self, args):
         import os
 
         if os.path.exists(self.PSWM_FILE):
-            hashed_one_pass = self.__authorize()
+            one_pass = self.__authorize()
             self._act_if_inited(one_pass, args)
         else:
             self._act_if_not_inited(args)
@@ -46,34 +47,32 @@ class BasicAction(object):
             second_input = getpass.getpass('New password again:')
         return first_input
 
-    def __get_one_password_hash(self):
-        from Crypto.Hash import MD5
-
-        password = getpass.getpass('One password:')
-        md5_hash = MD5.new()
-        md5_hash.update(password)
-        return md5_hash.digest()
-
     def __authorize(self):
-        password_hash = ''
+        one_pass = getpass.getpass('One password:')
         with open(self.PSWM_FILE, 'r') as pswm_file:
-            stored_password_hash = pswm_file.readline().strip()
-            if self.__get_one_password_hash() \
-                    != stored_password_hash.decode('hex'):
+            from Crypto.Hash import MD5
+            md5_hash = MD5.new()
+            md5_hash.update(one_pass)
+            if pswm_file.readline().strip().decode('hex') \
+                    != md5_hash.digest():
                 raise AuthorizationCheckFailedException(
                     'Authorization check failed')
-            password_hash = stored_password_hash.decode('hex')
-        return password_hash
+        return one_pass
 
 class PSWMInitAction(BasicAction):
     def _act_if_not_inited(self, args):
-        pass
+        self.__init_pswm(args)
 
     def _act_if_inited(self, one_pass, args):
         pass
 
     def __init_pswm(self, args):
-        pass
+        with open(self.PSWM_FILE, 'w') as pswm_file:
+            one_pass = self._get_new_password_with_double_check()
+            from Crypto.Hash import MD5
+            md5_hash = MD5.new()
+            md5_hash.update(one_pass)
+            pswm_file.write(md5_hash.hexdigest() + '\n')
 
 def parse_arguments():
     arg_parser = argparse.ArgumentParser()
