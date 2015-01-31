@@ -68,6 +68,13 @@ class PSWMPasswordPersistence(object):
                         aes_cipher.decrypt(line.strip().split(':')[1]))
         return None
 
+    def get_all_accounts():
+        account_list = list()
+        with open(self.pswm_file, 'r') as pswm_file:
+            pass
+
+        return account_list
+
 class BasicAction(object):
     def act(self, args):
         import os
@@ -89,6 +96,7 @@ class BasicAction(object):
         pass
 
     def _check_args(self):
+        # TODO: check input file_path
         pass
 
     def _get_new_password_with_double_check(self):
@@ -143,6 +151,7 @@ class GenerateAction(BasicAction):
         print password
 
     def _check_args(self):
+        # TODO: call super
         if self.act_args.length < 6:
             raise InvalidInputValueException('Input length %s is invalid' %
                 self.act_args.length)
@@ -201,6 +210,13 @@ class SetPswAction(BasicAction):
             self.act_args.file_path,
             self.one_pass).store_password(self._get_account(), password)
 
+class ListPswRecordAction(BasicAction):
+    def _act_if_inited(self):
+        for account in PSWMPasswordPersistence(
+                self.act_args.file_path,
+                self.one_pass).get_all_accounts():
+            print account
+
 def parse_arguments():
     arg_parser = argparse.ArgumentParser()
 
@@ -231,7 +247,7 @@ def parse_arguments():
     generate_action_parser.add_argument(
         '-d', '--domain', required=True,
         help='domain name of the account')
-    generate_action_parser.set_defaults(func=generate_password_action)
+    generate_action_parser.set_defaults(act_obj=GenerateAction())
 
     get_action_parser = action_subparsers.add_parser('getpsw')
     get_action_parser.add_argument(
@@ -240,7 +256,7 @@ def parse_arguments():
     get_action_parser.add_argument(
         '-d', '--domain', required=True,
         help='domain name of the account')
-    get_action_parser.set_defaults(func=get_password_action)
+    get_action_parser.set_defaults(act_obj=GetPswAction())
 
     setpsw_action_parser = action_subparsers.add_parser('setpsw')
     setpsw_action_parser.add_argument(
@@ -249,50 +265,15 @@ def parse_arguments():
     setpsw_action_parser.add_argument(
         '-d', '--domain', required=True,
         help='domain name of the account')
-    setpsw_action_parser.set_defaults(func=set_password_action)
+    setpsw_action_parser.set_defaults(act_obj=SetPswAction())
 
     return arg_parser.parse_args()
-
-def get_password_record_by_account(account_hash):
-    pswm_file = open(PSWM_FILE, 'r')
-    pswm_file.readline()
-    for line in pswm_file:
-        if line[:64] == account_hash.encode('hex'):
-            pswm_file.close()
-            return line.strip()[64:].decode('hex')
-    pswm_file.close()
-    raise NoPasswordRecordsException('No password for such account')
-
-def get_password_action(args, one_password):
-    from Crypto.Cipher import AES
-
-    BS = AES.block_size
-    unpad = lambda s: s[0:-ord(s[-1])]
-    psw_cipher = AES.new(one_password)
-
-    try:
-        print unpad(psw_cipher.decrypt(
-            get_password_record_by_account(
-                generate_account_hash(args.account, args.domain))))
-    except NoPasswordRecordsException, e:
-        print 'No password record for account %s' % generate_account(args.account, args.domain)
-
-def set_password_action(args, one_password):
-    first_input = 'first'
-    second_input = 'second'
-    while first_input != second_input:
-        first_input = getpass.getpass('New Password for %s:' % generate_account(args.account, args.domain))
-        second_input = getpass.getpass('Password Again:')
-    persist_psw(args.account, args.domain, first_input, one_password)
 
 def main():
     from Crypto.Hash import MD5
 
     args = parse_arguments()
-    one_password = getpass.getpass('One Password:')
-    password_hash = MD5.new()
-    password_hash.update(one_password)
-    args.func(args, password_hash.digest())
+    args.act_obj.act(args)
 
 if '__main__' == __name__:
     main()
