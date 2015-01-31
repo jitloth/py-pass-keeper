@@ -20,23 +20,58 @@ class PSWMNotInitializedException(Exception):
 class AuthorizationCheckFailedException(Exception):
     pass
 
-class BasicAction(object):
-    PSWM_FILE = os.path.expanduser('~') + '/.pswm'
-    PSWM_FILE_TEMP = PSWM_FILE + '.tmp'
+class PSWMPasswordPersistence(object):
+    from Crypto.Cipher import AES
+    from Crypto.Hash import MD5
 
+    BS = AES.block_size
+    PAD = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
+    UNPAD = lambda s: s[0:-ord(s[-1])]
+
+    def __init__(self, file_path, raw_key):
+        self.pswm_file = file_path
+        md5_hash = PSWMPasswordPersistence.MD5.new()
+        md5_hash.update(raw_key)
+        self.cipher_key = md5_hash.digest()
+
+    def store_password(account, password):
+        import shutil
+
+        with open(self.pswm_file, 'r') as old_file, \
+                open(self.pswm_file + '.tmp', 'w') as new_file:
+            aes_cipher = PSWMPasswordPersistence.AES.new(self.key)
+            encrypted_account = aes_cipher.encrypt(
+                PSWMPasswordPersistence.PAD(account)).encode('hex')
+            encrypted_psw = aes_cipher.encrypt(
+                PSWMPasswordPersistence.PAD(password)).encode('hex')
+
+            new_file.write(old_file.readline().strip() + '\n')
+            for line in old_file:
+                if not line.startswith(encrypted_account):
+                    new_file.write(line.strip() + '\n')
+            new_file.write(encrypted_account + ':' + encrypted_psw + '\n')
+        
+        shutil.copyfile(self.pswm_file + '.tmp', self.pswm_file)
+
+    def get_password(account, password):
+        pass
+
+class BasicAction(object):
     def act(self, args):
         import os
 
-        if os.path.exists(self.PSWM_FILE):
-            one_pass = self.__authorize()
-            self._act_if_inited(one_pass, args)
-        else:
-            self._act_if_not_inited(args)
+        self.act_args = args
 
-    def _act_if_not_inited(self, args):
+        if os.path.exists(self.act_args.file_path):
+            self.one_pass = self.__authorize()
+            self._act_if_inited()
+        else:
+            self._act_if_not_inited()
+
+    def _act_if_not_inited(self):
         raise PSWMNotInitializedException('PSWM is not initialized')
 
-    def _act_if_inited(self, one_pass, args):
+    def _act_if_inited(self):
         pass
 
     def _get_new_password_with_double_check(self):
@@ -47,35 +82,93 @@ class BasicAction(object):
             second_input = getpass.getpass('New password again:')
         return first_input
 
+    def _get_account(self):
+        return self.act_args.account + '@' + self.act_args.domain
+
     def __authorize(self):
         one_pass = getpass.getpass('One password:')
-        with open(self.PSWM_FILE, 'r') as pswm_file:
-            from Crypto.Hash import MD5
-            md5_hash = MD5.new()
-            md5_hash.update(one_pass)
+        with open(self.act_args.file_path, 'r') as pswm_file:
+            from Crypto.Hash import SHA256
+            sha256_hash = SHA256.new()
+            sha256_hash.update(one_pass)
             if pswm_file.readline().strip().decode('hex') \
-                    != md5_hash.digest():
+                    != sha256_hash.digest():
                 raise AuthorizationCheckFailedException(
                     'Authorization check failed')
         return one_pass
 
 class PSWMInitAction(BasicAction):
-    def _act_if_not_inited(self, args):
-        self.__init_pswm(args)
+    def _act_if_not_inited(self):
+        self.__init_pswm()
 
-    def _act_if_inited(self, one_pass, args):
+    def _act_if_inited(self):
         pass
 
-    def __init_pswm(self, args):
-        with open(self.PSWM_FILE, 'w') as pswm_file:
+    def __init_pswm(self):
+        from Crypto.Hash import SHA256
+
+        with open(self.act_args.file_path, 'w') as pswm_file:
             one_pass = self._get_new_password_with_double_check()
-            from Crypto.Hash import MD5
-            md5_hash = MD5.new()
-            md5_hash.update(one_pass)
-            pswm_file.write(md5_hash.hexdigest() + '\n')
+            sha256_hash = SHA256.new()
+            sha256_hash.update(one_pass)
+            pswm_file.write(sha256_hash.hexdigest() + '\n')
+
+class GenerateAction(BasicAction):
+    WEAK_PSW_STRENGTH = 'weak'
+    MEDIUM_PSW_STRENGTH = 'medium'
+    STRONG_PSW_STRENGH = 'strong'
+
+    def _act_if_inited(self):
+        password = self.__generate_password()
+        PSWMPasswordPersistence(
+            self.act_args.file_path,
+            self.one_pass).store_password(self._get_account, password)
+        print password
+
+    def __generate_password(self):
+        import string
+        import random
+        import itertools
+
+        psw = list()
+
+        if self.act_args.strength == GenerateAction.WEAK_PSW_STRENGTH:
+            char_sets = [
+                string.ascii_lowercase,
+                string.digits,
+                ]
+        elif self.act_args.strength == GenerateAction.MEDIUM_PSW_STRENGTH:
+            char_sets = [
+                string.ascii_lowercase,
+                string.ascii_uppercase,
+                string.digits,
+                ]
+        else:
+            char_sets = [
+                string.ascii_lowercase,
+                string.ascii_uppercase,
+                string.digits,
+                string.punctuation,
+                ]
+
+        for char_set in char_sets:
+            psw.append(char_set[random.int(0, len(char_set) - 1)])
+
+        all_char_set = list(itertools.chain.from_iterable(char_sets))
+        for i in range(self.act_args.length - len(char_sets)):
+            psw.append(all_char_set[random.randint(0, len(all_char_set) - 1)])
+
+        random.shuffle(psw)
+
+        return ''.join(psw)
 
 def parse_arguments():
     arg_parser = argparse.ArgumentParser()
+
+    arg_parser.add_argument(
+        '-f', '--file_path',
+        default=os.path.abspath(os.path.expanduser('~') + '/.pswm'),
+        help='set pswm file path [default: %(default)s]')
     
     # decide which action to do
     action_subparsers = arg_parser.add_subparsers(title='pswm actions')
@@ -83,7 +176,7 @@ def parse_arguments():
     generate_action_parser = action_subparsers.add_parser('generate')
     generate_action_parser.add_argument(
         '-l', '--length', type=int, default=16,
-        help='set the password length')
+        help='set the password length [default: %(default)s]')
     generate_action_parser.add_argument(
         '-s', '--strength',
         choices=[
@@ -92,10 +185,10 @@ def parse_arguments():
             STRONG_PSW_STRENGH,
             ],
         default=STRONG_PSW_STRENGH,
-        help='set the password strength')
+        help='set the password strength [default: %(default)s]')
     generate_action_parser.add_argument(
         '-a', '--account', default='me',
-        help='account name')
+        help='account name [default: %(default)s]')
     generate_action_parser.add_argument(
         '-d', '--domain', required=True,
         help='domain name of the account')
@@ -104,7 +197,7 @@ def parse_arguments():
     get_action_parser = action_subparsers.add_parser('getpsw')
     get_action_parser.add_argument(
         '-a', '--account', default='me',
-        help='account name')
+        help='account name [default: %(default)s]')
     get_action_parser.add_argument(
         '-d', '--domain', required=True,
         help='domain name of the account')
@@ -113,7 +206,7 @@ def parse_arguments():
     setpsw_action_parser = action_subparsers.add_parser('setpsw')
     setpsw_action_parser.add_argument(
         '-a', '--account', default='me',
-        help='account name')
+        help='account name [default: %(default)s]')
     setpsw_action_parser.add_argument(
         '-d', '--domain', required=True,
         help='domain name of the account')
