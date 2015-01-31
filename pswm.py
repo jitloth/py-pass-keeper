@@ -23,30 +23,29 @@ class AuthorizationCheckFailedException(Exception):
 class InvalidInputValueException(Exception):
     pass
 
+class PSWMAlreadyInitializedException(Exception):
+    pass
+
 class PSWMPasswordPersistence(object):
-    from Crypto.Cipher import AES
-    from Crypto.Hash import MD5
-
-    BS = AES.block_size
-    PAD = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
-    UNPAD = lambda s: s[0:-ord(s[-1])]
-
     def __init__(self, file_path, raw_key):
+        from Crypto.Hash import MD5
+
         self.pswm_file = file_path
-        md5_hash = PSWMPasswordPersistence.MD5.new()
+        md5_hash = MD5.new()
         md5_hash.update(raw_key)
         self.cipher_key = md5_hash.digest()
 
-    def store_password(account, password):
+    def store_password(self, account, password):
         import shutil
+        from Crypto.Cipher import AES
 
         with open(self.pswm_file, 'r') as old_file, \
                 open(self.pswm_file + '.tmp', 'w') as new_file:
-            aes_cipher = PSWMPasswordPersistence.AES.new(self.cipher_key)
+            aes_cipher = AES.new(self.cipher_key)
             encrypted_account = aes_cipher.encrypt(
-                PSWMPasswordPersistence.PAD(account)).encode('hex')
+                self.__pad(account)).encode('hex')
             encrypted_psw = aes_cipher.encrypt(
-                PSWMPasswordPersistence.PAD(password)).encode('hex')
+                self.__pad(password)).encode('hex')
 
             new_file.write(old_file.readline().strip() + '\n')
             for line in old_file:
@@ -56,24 +55,42 @@ class PSWMPasswordPersistence(object):
         
         shutil.copyfile(self.pswm_file + '.tmp', self.pswm_file)
 
-    def get_password(account):
+    def get_password(self, account):
+        from Crypto.Cipher import AES
+
         with open(self.pswm_file, 'r') as pswm_file:
-            aes_cipher = PSWMPasswordPersistence.AES.new(self.cipher_key)
+            aes_cipher = AES.new(self.cipher_key)
             encrypted_account = aes_cipher.encrypt(
-                PSWMPasswordPersistence.PAD(account)).encode('hex')
+                self.__pad(account)).encode('hex')
             pswm_file.readline()
             for line in pswm_file:
                 if line.startswith(encrypted_account):
-                    return PSWMPasswordPersistence.UNPAD(
-                        aes_cipher.decrypt(line.strip().split(':')[1]))
+                    return self.__unpad(aes_cipher.decrypt(
+                        line.strip().split(':')[1].decode('hex')))
         return None
 
-    def get_all_accounts():
+    def get_all_accounts(self):
+        from Crypto.Cipher import AES
+
         account_list = list()
         with open(self.pswm_file, 'r') as pswm_file:
+            pswm_file.readline()
+            aes_cipher = AES.new(self.cipher_key)
+            for line in pswm_file:
+                account_list.append(self.__unpad(aes_cipher.decrypt(
+                    line.strip().split(':')[0].decode('hex'))))
             pass
 
         return account_list
+
+    def __pad(self, s):
+        from Crypto.Cipher import AES
+
+        BS = AES.block_size
+        return s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
+
+    def __unpad(self, s):
+        return s[0:-ord(s[-1])]
 
 class BasicAction(object):
     def act(self, args):
@@ -104,7 +121,7 @@ class BasicAction(object):
         secound_input = 'second_input'
         while first_input != secound_input:
             first_input = getpass.getpass('Please enter new password:')
-            second_input = getpass.getpass('New password again:')
+            secound_input = getpass.getpass('New password again:')
         return first_input
 
     def _get_account(self):
@@ -127,7 +144,11 @@ class PSWMInitAction(BasicAction):
         self.__init_pswm()
 
     def _act_if_inited(self):
-        pass
+        if self.act_args.force_init:
+            self.__init_pswm()
+        else:
+            raise PSWMAlreadyInitializedException(
+                'PSWM has already been initialized')
 
     def __init_pswm(self):
         from Crypto.Hash import SHA256
@@ -183,7 +204,7 @@ class GenerateAction(BasicAction):
                 ]
 
         for char_set in char_sets:
-            psw.append(char_set[random.int(0, len(char_set) - 1)])
+            psw.append(char_set[random.randint(0, len(char_set) - 1)])
 
         all_char_set = list(itertools.chain.from_iterable(char_sets))
         for i in range(self.act_args.length - len(char_sets)):
@@ -199,7 +220,7 @@ class GetPswAction(BasicAction):
             self.act_args.file_path,
             self.one_pass).get_password(self._get_account())
         if password is None:
-            raise InvalidInputValueException(
+            raise NoPasswordRecordsException(
                 'Has no password record for account %s' % self._get_account())
         print password
 
@@ -267,11 +288,18 @@ def parse_arguments():
         help='domain name of the account')
     setpsw_action_parser.set_defaults(act_obj=SetPswAction())
 
+    init_action_parser = action_subparsers.add_parser('init')
+    init_action_parser.add_argument(
+        '-f', '--force-init', action='store_true',
+        help='force init if pswm was already initialized, need authorization')
+    init_action_parser.set_defaults(act_obj=PSWMInitAction())
+
+    list_action_parser = action_subparsers.add_parser('list')
+    list_action_parser.set_defaults(act_obj=ListPswRecordAction())
+
     return arg_parser.parse_args()
 
 def main():
-    from Crypto.Hash import MD5
-
     args = parse_arguments()
     args.act_obj.act(args)
 
