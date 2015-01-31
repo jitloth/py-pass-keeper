@@ -20,6 +20,9 @@ class PSWMNotInitializedException(Exception):
 class AuthorizationCheckFailedException(Exception):
     pass
 
+class InvalidInputValueException(Exception):
+    pass
+
 class PSWMPasswordPersistence(object):
     from Crypto.Cipher import AES
     from Crypto.Hash import MD5
@@ -39,7 +42,7 @@ class PSWMPasswordPersistence(object):
 
         with open(self.pswm_file, 'r') as old_file, \
                 open(self.pswm_file + '.tmp', 'w') as new_file:
-            aes_cipher = PSWMPasswordPersistence.AES.new(self.key)
+            aes_cipher = PSWMPasswordPersistence.AES.new(self.cipher_key)
             encrypted_account = aes_cipher.encrypt(
                 PSWMPasswordPersistence.PAD(account)).encode('hex')
             encrypted_psw = aes_cipher.encrypt(
@@ -53,14 +56,25 @@ class PSWMPasswordPersistence(object):
         
         shutil.copyfile(self.pswm_file + '.tmp', self.pswm_file)
 
-    def get_password(account, password):
-        pass
+    def get_password(account):
+        with open(self.pswm_file, 'r') as pswm_file:
+            aes_cipher = PSWMPasswordPersistence.AES.new(self.cipher_key)
+            encrypted_account = aes_cipher.encrypt(
+                PSWMPasswordPersistence.PAD(account)).encode('hex')
+            pswm_file.readline()
+            for line in pswm_file:
+                if line.startswith(encrypted_account):
+                    return PSWMPasswordPersistence.UNPAD(
+                        aes_cipher.decrypt(line.strip().split(':')[1]))
+        return None
 
 class BasicAction(object):
     def act(self, args):
         import os
 
         self.act_args = args
+
+        self._check_args()
 
         if os.path.exists(self.act_args.file_path):
             self.one_pass = self.__authorize()
@@ -72,6 +86,9 @@ class BasicAction(object):
         raise PSWMNotInitializedException('PSWM is not initialized')
 
     def _act_if_inited(self):
+        pass
+
+    def _check_args(self):
         pass
 
     def _get_new_password_with_double_check(self):
@@ -122,8 +139,13 @@ class GenerateAction(BasicAction):
         password = self.__generate_password()
         PSWMPasswordPersistence(
             self.act_args.file_path,
-            self.one_pass).store_password(self._get_account, password)
+            self.one_pass).store_password(self._get_account(), password)
         print password
+
+    def _check_args(self):
+        if self.act_args.length < 6:
+            raise InvalidInputValueException('Input length %s is invalid' %
+                self.act_args.length)
 
     def __generate_password(self):
         import string
@@ -161,6 +183,23 @@ class GenerateAction(BasicAction):
         random.shuffle(psw)
 
         return ''.join(psw)
+
+class GetPswAction(BasicAction):
+    def _act_if_inited(self):
+        password = PSWMPasswordPersistence(
+            self.act_args.file_path,
+            self.one_pass).get_password(self._get_account())
+        if password is None:
+            raise InvalidInputValueException(
+                'Has no password record for account %s' % self._get_account())
+        print password
+
+class SetPswAction(BasicAction):
+    def _act_if_inited(self):
+        password = self._get_new_password_with_double_check()
+        PSWMPasswordPersistence(
+            self.act_args.file_path,
+            self.one_pass).store_password(self._get_account(), password)
 
 def parse_arguments():
     arg_parser = argparse.ArgumentParser()
@@ -214,40 +253,6 @@ def parse_arguments():
 
     return arg_parser.parse_args()
 
-def generate_password(psw_strength, psw_length):
-    import string
-    import random
-    import itertools
-
-    psw = list()
-
-    if psw_strength == WEAK_PSW_STRENGTH:
-        char_sets = [string.ascii_lowercase, string.digits]
-    elif psw_strength == MEDIUM_PSW_STRENGTH:
-        char_sets = [string.ascii_lowercase, string.ascii_uppercase, string.digits]
-    else:
-        char_sets = [string.ascii_lowercase, string.ascii_uppercase, string.digits, string.punctuation]
-
-    for char_set in char_sets:
-        psw.append(char_set[random.randint(0, len(char_set) - 1)])
-
-    all_char_set = list(itertools.chain.from_iterable(char_sets))
-    for i in range(psw_length - len(char_sets)):
-        psw.append(all_char_set[random.randint(0, len(all_char_set) - 1)])
-
-    random.shuffle(psw)
-
-    return ''.join(psw)
-
-def update_content_in_file(account_hash, psw_cipher_text):
-    import shutil
-    with open(PSWM_FILE, 'r') as old_file, open(PSWM_FILE_TEMP, 'w') as new_file:
-        for line in old_file:
-            if not line.startswith(account_hash.encode('hex')):
-                new_file.write(line.strip() + '\n')
-        new_file.write(account_hash.encode('hex') + psw_cipher_text.encode('hex') + '\n')
-    shutil.copyfile(PSWM_FILE_TEMP, PSWM_FILE)
-
 def get_password_record_by_account(account_hash):
     pswm_file = open(PSWM_FILE, 'r')
     pswm_file.readline()
@@ -257,31 +262,6 @@ def get_password_record_by_account(account_hash):
             return line.strip()[64:].decode('hex')
     pswm_file.close()
     raise NoPasswordRecordsException('No password for such account')
-
-def generate_account(account_name, account_domain):
-    return account_name + '@' + account_domain
-
-def generate_account_hash(account_name, account_domain):
-    from Crypto.Hash import SHA256
-
-    account_hash = SHA256.new()
-    account_hash.update(generate_account(account_name, account_domain))
-    return account_hash.digest()
-
-def persist_psw(account_name, account_domain, psw, one_password):
-    from Crypto.Cipher import AES
-
-    BS = AES.block_size
-    pad = lambda s: s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
-    update_content_in_file(
-        generate_account_hash(account_name, account_domain),
-        AES.new(one_password).encrypt(pad(psw)),
-        )
-
-def generate_password_action(args, one_password):
-    psw = generate_password(args.strength, args.length)
-    persist_psw(args.account, args.domain, psw, one_password)
-    print psw
 
 def get_password_action(args, one_password):
     from Crypto.Cipher import AES
