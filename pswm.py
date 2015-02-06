@@ -4,13 +4,6 @@ import argparse
 import getpass
 import os
 
-WEAK_PSW_STRENGTH = 'weak'
-MEDIUM_PSW_STRENGTH = 'medium'
-STRONG_PSW_STRENGH = 'strong'
-
-PSWM_FILE = os.path.expanduser('~') + '/.pswm'
-PSWM_FILE_TEMP = PSWM_FILE + '.tmp'
-
 class NoPasswordRecordsException(Exception):
     pass
 
@@ -52,7 +45,7 @@ class PSWMPasswordPersistence(object):
                 if not line.startswith(encrypted_account):
                     new_file.write(line.strip() + '\n')
             new_file.write(encrypted_account + ':' + encrypted_psw + '\n')
-        
+
         shutil.copyfile(self.pswm_file + '.tmp', self.pswm_file)
 
     def get_password(self, account):
@@ -162,7 +155,7 @@ class PSWMInitAction(BasicAction):
 class GenerateAction(BasicAction):
     WEAK_PSW_STRENGTH = 'weak'
     MEDIUM_PSW_STRENGTH = 'medium'
-    STRONG_PSW_STRENGH = 'strong'
+    STRONG_PSW_STRENGTH = 'strong'
 
     def _act_if_inited(self):
         password = self.__generate_password()
@@ -245,7 +238,7 @@ def parse_arguments():
         '-f', '--file_path',
         default=os.path.abspath(os.path.expanduser('~') + '/.pswm'),
         help='set pswm file path [default: %(default)s]')
-    
+
     # decide which action to do
     action_subparsers = arg_parser.add_subparsers(title='pswm actions')
 
@@ -256,11 +249,11 @@ def parse_arguments():
     generate_action_parser.add_argument(
         '-s', '--strength',
         choices=[
-            WEAK_PSW_STRENGTH, 
-            MEDIUM_PSW_STRENGTH, 
-            STRONG_PSW_STRENGH,
+            GenerateAction.WEAK_PSW_STRENGTH,
+            GenerateAction.MEDIUM_PSW_STRENGTH,
+            GenerateAction.STRONG_PSW_STRENGTH,
             ],
-        default=STRONG_PSW_STRENGH,
+        default=GenerateAction.STRONG_PSW_STRENGTH,
         help='set the password strength [default: %(default)s]')
     generate_action_parser.add_argument(
         '-a', '--account', default='me',
