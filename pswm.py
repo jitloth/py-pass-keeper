@@ -290,7 +290,7 @@ def parse_arguments():
 
     init_action_parser = action_subparsers.add_parser('init')
     init_action_parser.add_argument(
-        '-f', '--force-init', action='store_true',
+        '--force-init', action='store_true',
         help='force init if pswm was already initialized, need authorization')
     init_action_parser.set_defaults(act_obj=PSWMInitAction())
 
