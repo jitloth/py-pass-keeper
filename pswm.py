@@ -82,13 +82,15 @@ class PSWMPasswordPersistence(object):
 
         return account_list
 
-    def __pad(self, s):
+    @staticmethod
+    def __pad(s):
         from Crypto.Cipher import AES
 
-        BS = AES.block_size
-        return s + (BS - len(s) % BS) * chr(BS - len(s) % BS)
+        bs = AES.block_size
+        return s + (bs - len(s) % bs) * chr(bs - len(s) % bs)
 
-    def __unpad(self, s):
+    @staticmethod
+    def __unpad(s):
         return s[0:-ord(s[-1])]
 
 
@@ -116,7 +118,8 @@ class BasicAction(object):
         # TODO: check input file_path
         pass
 
-    def _get_new_password_with_double_check(self):
+    @staticmethod
+    def _get_new_password_with_double_check():
         first_input = 'first_input'
         second_input = 'second_input'
         while first_input != second_input:
