@@ -4,20 +4,26 @@ import argparse
 import getpass
 import os
 
+
 class NoPasswordRecordsException(Exception):
     pass
+
 
 class PSWMNotInitializedException(Exception):
     pass
 
+
 class AuthorizationCheckFailedException(Exception):
     pass
+
 
 class InvalidInputValueException(Exception):
     pass
 
+
 class PSWMAlreadyInitializedException(Exception):
     pass
+
 
 class PSWMPasswordPersistence(object):
     def __init__(self, file_path, raw_key):
@@ -85,6 +91,7 @@ class PSWMPasswordPersistence(object):
     def __unpad(self, s):
         return s[0:-ord(s[-1])]
 
+
 class BasicAction(object):
     def act(self, args):
         import os
@@ -111,10 +118,10 @@ class BasicAction(object):
 
     def _get_new_password_with_double_check(self):
         first_input = 'first_input'
-        secound_input = 'second_input'
-        while first_input != secound_input:
+        second_input = 'second_input'
+        while first_input != second_input:
             first_input = getpass.getpass('Please enter new password:')
-            secound_input = getpass.getpass('New password again:')
+            second_input = getpass.getpass('New password again:')
         return first_input
 
     def _get_account(self):
@@ -124,6 +131,7 @@ class BasicAction(object):
         one_pass = getpass.getpass('One password:')
         with open(self.act_args.file_path, 'r') as pswm_file:
             from Crypto.Hash import SHA256
+
             sha256_hash = SHA256.new()
             sha256_hash.update(one_pass)
             if pswm_file.readline().strip().decode('hex') \
@@ -131,6 +139,7 @@ class BasicAction(object):
                 raise AuthorizationCheckFailedException(
                     'Authorization check failed')
         return one_pass
+
 
 class PSWMInitAction(BasicAction):
     def _act_if_not_inited(self):
@@ -152,6 +161,7 @@ class PSWMInitAction(BasicAction):
             sha256_hash.update(one_pass)
             pswm_file.write(sha256_hash.hexdigest() + '\n')
 
+
 class GenerateAction(BasicAction):
     WEAK_PSW_STRENGTH = 'weak'
     MEDIUM_PSW_STRENGTH = 'medium'
@@ -168,7 +178,7 @@ class GenerateAction(BasicAction):
         # TODO: call super
         if self.act_args.length < 6:
             raise InvalidInputValueException('Input length %s is invalid' %
-                self.act_args.length)
+                                             self.act_args.length)
 
     def __generate_password(self):
         import string
@@ -181,20 +191,20 @@ class GenerateAction(BasicAction):
             char_sets = [
                 string.ascii_lowercase,
                 string.digits,
-                ]
+            ]
         elif self.act_args.strength == GenerateAction.MEDIUM_PSW_STRENGTH:
             char_sets = [
                 string.ascii_lowercase,
                 string.ascii_uppercase,
                 string.digits,
-                ]
+            ]
         else:
             char_sets = [
                 string.ascii_lowercase,
                 string.ascii_uppercase,
                 string.digits,
                 string.punctuation,
-                ]
+            ]
 
         for char_set in char_sets:
             psw.append(char_set[random.randint(0, len(char_set) - 1)])
@@ -207,6 +217,7 @@ class GenerateAction(BasicAction):
 
         return ''.join(psw)
 
+
 class GetPswAction(BasicAction):
     def _act_if_inited(self):
         password = PSWMPasswordPersistence(
@@ -217,6 +228,7 @@ class GetPswAction(BasicAction):
                 'Has no password record for account %s' % self._get_account())
         print password
 
+
 class SetPswAction(BasicAction):
     def _act_if_inited(self):
         password = self._get_new_password_with_double_check()
@@ -224,12 +236,14 @@ class SetPswAction(BasicAction):
             self.act_args.file_path,
             self.one_pass).store_password(self._get_account(), password)
 
+
 class ListPswRecordAction(BasicAction):
     def _act_if_inited(self):
         for account in PSWMPasswordPersistence(
                 self.act_args.file_path,
                 self.one_pass).get_all_accounts():
             print account
+
 
 def parse_arguments():
     arg_parser = argparse.ArgumentParser()
@@ -252,7 +266,7 @@ def parse_arguments():
             GenerateAction.WEAK_PSW_STRENGTH,
             GenerateAction.MEDIUM_PSW_STRENGTH,
             GenerateAction.STRONG_PSW_STRENGTH,
-            ],
+        ],
         default=GenerateAction.STRONG_PSW_STRENGTH,
         help='set the password strength [default: %(default)s]')
     generate_action_parser.add_argument(
@@ -292,9 +306,11 @@ def parse_arguments():
 
     return arg_parser.parse_args()
 
+
 def main():
     args = parse_arguments()
     args.act_obj.act(args)
+
 
 if '__main__' == __name__:
     main()
