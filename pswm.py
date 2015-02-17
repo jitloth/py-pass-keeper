@@ -1,8 +1,8 @@
 #!/usr/bin/python
 
-import argparse
-import getpass
-import os
+from argparse import ArgumentParser
+from getpass import getpass
+from os import path
 
 
 class NoPasswordRecordsException(Exception):
@@ -95,14 +95,18 @@ class PSWMPasswordPersistence(object):
 
 
 class BasicAction(object):
+    def __init__(self):
+        self.act_args = None
+        self.one_pass = None
+
     def act(self, args):
-        import os
+        from os import path
 
         self.act_args = args
 
         self._check_args()
 
-        if os.path.exists(self.act_args.file_path):
+        if path.exists(self.act_args.file_path):
             self.one_pass = self.__authorize()
             self._act_if_inited()
         else:
@@ -118,20 +122,11 @@ class BasicAction(object):
         # TODO: check input file_path
         pass
 
-    @staticmethod
-    def _get_new_password_with_double_check():
-        first_input = 'first_input'
-        second_input = 'second_input'
-        while first_input != second_input:
-            first_input = getpass.getpass('Please enter new password:')
-            second_input = getpass.getpass('New password again:')
-        return first_input
-
     def _get_account(self):
         return self.act_args.account + '@' + self.act_args.domain
 
     def __authorize(self):
-        one_pass = getpass.getpass('One password:')
+        one_pass = getpass('One password:')
         with open(self.act_args.file_path, 'r') as pswm_file:
             from Crypto.Hash import SHA256
 
@@ -142,6 +137,15 @@ class BasicAction(object):
                 raise AuthorizationCheckFailedException(
                     'Authorization check failed')
         return one_pass
+
+
+def get_double_checked_pass():
+    first_input = 'first_input'
+    second_input = 'second_input'
+    while first_input != second_input:
+        first_input = getpass('Please enter new password:')
+        second_input = getpass('New password again:')
+    return first_input
 
 
 class PSWMInitAction(BasicAction):
@@ -159,7 +163,7 @@ class PSWMInitAction(BasicAction):
         from Crypto.Hash import SHA256
 
         with open(self.act_args.file_path, 'w') as pswm_file:
-            one_pass = self._get_new_password_with_double_check()
+            one_pass = get_double_checked_pass()
             sha256_hash = SHA256.new()
             sha256_hash.update(one_pass)
             pswm_file.write(sha256_hash.hexdigest() + '\n')
@@ -234,7 +238,7 @@ class GetPswAction(BasicAction):
 
 class SetPswAction(BasicAction):
     def _act_if_inited(self):
-        password = self._get_new_password_with_double_check()
+        password = get_double_checked_pass()
         PSWMPasswordPersistence(
             self.act_args.file_path,
             self.one_pass).store_password(self._get_account(), password)
@@ -249,11 +253,11 @@ class ListPswRecordAction(BasicAction):
 
 
 def parse_arguments():
-    arg_parser = argparse.ArgumentParser()
+    arg_parser = ArgumentParser()
 
     arg_parser.add_argument(
         '-f', '--file_path',
-        default=os.path.abspath(os.path.expanduser('~') + '/.pswm'),
+        default=path.abspath(path.expanduser('~') + '/.pswm'),
         help='set pswm file path [default: %(default)s]')
 
     # decide which action to do
