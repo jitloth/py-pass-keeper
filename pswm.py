@@ -68,7 +68,7 @@ class PSWMPasswordPersistence(object):
                         line.strip().split(':')[1].decode('hex')))
         return None
 
-    def get_all_accounts(self):
+    def get_all_accounts(self, sort_key=None):
         from Crypto.Cipher import AES
 
         account_list = list()
@@ -79,6 +79,9 @@ class PSWMPasswordPersistence(object):
                 account_list.append(self.__unpad(aes_cipher.decrypt(
                     line.strip().split(':')[0].decode('hex'))))
             pass
+
+        if sort_key is not None:
+            account_list = sorted(account_list, key=sort_key)
 
         return account_list
 
@@ -246,10 +249,12 @@ class SetPswAction(BasicAction):
 
 class ListPswRecordAction(BasicAction):
     def _act_if_inited(self):
-        for account in PSWMPasswordPersistence(
-                self.act_args.file_path,
-                self.one_pass).get_all_accounts():
-            print account
+        account_list = PSWMPasswordPersistence(
+            self.act_args.file_path,
+            self.one_pass).get_all_accounts(sort_key=lambda x: x.split('@')[1])
+
+        for i, account in enumerate(account_list):
+            print "%3d. %s" % (i + 1, account)
 
 
 def parse_arguments():
