@@ -248,12 +248,21 @@ class SetPswAction(BasicAction):
 
 
 class ListPswRecordAction(BasicAction):
-    def _act_if_inited(self):
-        account_list = PSWMPasswordPersistence(
-            self.act_args.file_path,
-            self.one_pass).get_all_accounts(sort_key=lambda x: x.split('@')[1])
+    LIST_RESULT_SORT = {
+        'time': None,
+        'domain_alpha': (lambda x: x.split('@')[1] + x.split('@')[0]),
+        'account_alpha': (lambda x: x.split('@')[0] + x.split('@')[1]),
+        }
 
-        for i, account in enumerate(account_list):
+    DEFAULT_SORT = 'time'
+
+    def _act_if_inited(self):
+        psw_persistence = PSWMPasswordPersistence(
+            self.act_args.file_path,
+            self.one_pass)
+
+        for i, account in enumerate(psw_persistence.get_all_accounts(
+                ListPswRecordAction.LIST_RESULT_SORT[self.act_args.sort])):
             print "%3d. %s" % (i + 1, account)
 
 
@@ -314,6 +323,11 @@ def parse_arguments():
     init_action_parser.set_defaults(act_obj=PSWMInitAction())
 
     list_action_parser = action_subparsers.add_parser('list')
+    list_action_parser.add_argument(
+        '--sort',
+        choices=list(ListPswRecordAction.LIST_RESULT_SORT),
+        default=ListPswRecordAction.DEFAULT_SORT,
+        help='define the output sequence of list result [default: %(default)s]')
     list_action_parser.set_defaults(act_obj=ListPswRecordAction())
 
     return arg_parser.parse_args()
