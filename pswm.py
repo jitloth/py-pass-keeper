@@ -125,7 +125,6 @@ class BasicAction(object):
         pass
 
     def _check_args(self):
-        # TODO: check input file_path
         pass
 
     def _get_account(self):
@@ -188,7 +187,6 @@ class GenerateAction(BasicAction):
         print password
 
     def _check_args(self):
-        # TODO: call super
         if self.act_args.length < 6:
             raise InvalidInputValueException('Input length %s is invalid' %
                                              self.act_args.length)
