@@ -37,6 +37,7 @@ class PSWMPasswordPersistence(object):
     def store_password(self, account, password):
         import shutil
         from Crypto.Cipher import AES
+        import time
 
         with open(self.pswm_file, 'r') as old_file, \
                 open(self.pswm_file + '.tmp', 'w') as new_file:
@@ -44,7 +45,8 @@ class PSWMPasswordPersistence(object):
             encrypted_account = aes_cipher.encrypt(
                 self.__pad(account)).encode('hex')
             encrypted_psw = aes_cipher.encrypt(
-                self.__pad(password)).encode('hex')
+                self.__pad(password + '|' + str(time.time()))
+                ).encode('hex')
 
             new_file.write(old_file.readline().strip() + '\n')
             for line in old_file:
@@ -65,7 +67,8 @@ class PSWMPasswordPersistence(object):
             for line in pswm_file:
                 if line.startswith(encrypted_account):
                     return self.__unpad(aes_cipher.decrypt(
-                        line.strip().split(':')[1].decode('hex')))
+                        line.strip().split(':')[1].decode('hex')
+                        )).split('|')[0]
         return None
 
     def get_all_accounts(self, sort_key=None):
