@@ -250,8 +250,8 @@ class SetPswAction(BasicAction):
 class ListPswRecordAction(BasicAction):
     LIST_RESULT_SORT = {
         'time': None,
-        'domain_alpha': (lambda x: x.split('@')[1] + x.split('@')[0]),
-        'account_alpha': (lambda x: x.split('@')[0] + x.split('@')[1]),
+        'domain_alpha': (lambda x: x.split('@')[-1] + x.split('@')[0]),
+        'account_alpha': (lambda x: x.split('@')[0] + x.split('@')[-1]),
         }
 
     DEFAULT_SORT = 'time'
