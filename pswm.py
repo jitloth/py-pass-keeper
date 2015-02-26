@@ -1,27 +1,30 @@
 #!/usr/bin/python
 
-from argparse import ArgumentParser
 from getpass import getpass
 from os import path
 
 
-class NoPasswordRecordsException(Exception):
+class NoPasswordRecords(Exception):
     pass
 
 
-class PSWMNotInitializedException(Exception):
+class PSWMNotInitialized(Exception):
     pass
 
 
-class AuthorizationCheckFailedException(Exception):
+class AuthorizationCheckFailed(Exception):
     pass
 
 
-class InvalidInputValueException(Exception):
+class InvalidInputValue(Exception):
     pass
 
 
-class PSWMAlreadyInitializedException(Exception):
+class PSWMAlreadyInitialized(Exception):
+    pass
+
+
+class CommandError(Exception):
     pass
 
 
@@ -119,7 +122,7 @@ class BasicAction(object):
             self._act_if_not_inited()
 
     def _act_if_not_inited(self):
-        raise PSWMNotInitializedException('PSWM is not initialized')
+        raise PSWMNotInitialized('PSWM is not initialized')
 
     def _act_if_inited(self):
         pass
@@ -139,8 +142,7 @@ class BasicAction(object):
             sha256_hash.update(one_pass)
             if pswm_file.readline().strip().decode('hex') \
                     != sha256_hash.digest():
-                raise AuthorizationCheckFailedException(
-                    'Authorization check failed')
+                raise AuthorizationCheckFailed('Authorization check failed')
         return one_pass
 
 
@@ -161,8 +163,7 @@ class PSWMInitAction(BasicAction):
         if self.act_args.force_init:
             self.__init_pswm()
         else:
-            raise PSWMAlreadyInitializedException(
-                'PSWM has already been initialized')
+            raise PSWMAlreadyInitialized('PSWM has already been initialized')
 
     def __init_pswm(self):
         from Crypto.Hash import SHA256
@@ -188,8 +189,8 @@ class GenerateAction(BasicAction):
 
     def _check_args(self):
         if self.act_args.length < 6:
-            raise InvalidInputValueException('Input length %s is invalid' %
-                                             self.act_args.length)
+            raise InvalidInputValue(
+                'Input length %s is invalid' % self.act_args.length)
 
     def __generate_password(self):
         import string
@@ -231,13 +232,35 @@ class GenerateAction(BasicAction):
 
 class GetPswAction(BasicAction):
     def _act_if_inited(self):
+        if self.act_args.domain is not None:
+            self.__getpsw_by_account()
+        elif self.act_args.number is not None:
+            self.__getpsw_by_number()
+
+    def _check_args(self):
+        if self.act_args.domain is None and self.act_args.number is None:
+            raise CommandError('Neither domain nor number argument is set')
+
+    def __getpsw_by_account(self):
         password = PSWMPasswordPersistence(
             self.act_args.file_path,
             self.one_pass).get_password(self._get_account())
         if password is None:
-            raise NoPasswordRecordsException(
+            raise NoPasswordRecords(
                 'Has no password record for account %s' % self._get_account())
         print password
+
+    def __getpsw_by_number(self):
+        psw_persistence = PSWMPasswordPersistence(
+            self.act_args.file_path,
+            self.one_pass)
+        all_accounts = psw_persistence.get_all_accounts(
+            ListPswRecordAction.LIST_RESULT_SORT[self.act_args.sort])
+        if self.act_args.number > len(all_accounts):
+            raise NoPasswordRecords(
+                'Has no password record for account %s' % self.act_args.number)
+        print psw_persistence.get_password(
+            all_accounts[self.act_args.number - 1])
 
 
 class SetPswAction(BasicAction):
@@ -267,7 +290,19 @@ class ListPswRecordAction(BasicAction):
             print "%3d. %s" % (i + 1, account)
 
 
+def positive_integer(string):
+    from argparse import ArgumentTypeError
+
+    value = int(string)
+    if value <= 0:
+        msg = '%s is not a positive integer' % string
+        raise ArgumentTypeError(msg)
+    return value
+
+
 def parse_arguments():
+    from argparse import ArgumentParser
+
     arg_parser = ArgumentParser()
 
     arg_parser.add_argument(
@@ -278,7 +313,9 @@ def parse_arguments():
     # decide which action to do
     action_subparsers = arg_parser.add_subparsers(title='pswm actions')
 
-    generate_action_parser = action_subparsers.add_parser('generate')
+    generate_action_parser = action_subparsers.add_parser(
+        'generate',
+        help='generate password for given account')
     generate_action_parser.add_argument(
         '-l', '--length', type=int, default=16,
         help='set the password length [default: %(default)s]')
@@ -299,16 +336,29 @@ def parse_arguments():
         help='domain name of the account')
     generate_action_parser.set_defaults(act_obj=GenerateAction())
 
-    get_action_parser = action_subparsers.add_parser('getpsw')
+    get_action_parser = action_subparsers.add_parser(
+        'getpsw',
+        help='get stored password record for the given account')
     get_action_parser.add_argument(
         '-a', '--account', default='me',
         help='account name [default: %(default)s]')
     get_action_parser.add_argument(
-        '-d', '--domain', required=True,
+        '-d', '--domain',
         help='domain name of the account')
+    get_action_parser.add_argument(
+        '-n', '--number',
+        type=positive_integer,
+        help='store number of the account')
+    get_action_parser.add_argument(
+        '--sort',
+        choices=list(ListPswRecordAction.LIST_RESULT_SORT),
+        default=ListPswRecordAction.DEFAULT_SORT,
+        help='define the order of stored record [default: %(default)s]')
     get_action_parser.set_defaults(act_obj=GetPswAction())
 
-    setpsw_action_parser = action_subparsers.add_parser('setpsw')
+    setpsw_action_parser = action_subparsers.add_parser(
+        'setpsw',
+        help='store the given password for the given account')
     setpsw_action_parser.add_argument(
         '-a', '--account', default='me',
         help='account name [default: %(default)s]')
@@ -317,13 +367,17 @@ def parse_arguments():
         help='domain name of the account')
     setpsw_action_parser.set_defaults(act_obj=SetPswAction())
 
-    init_action_parser = action_subparsers.add_parser('init')
+    init_action_parser = action_subparsers.add_parser(
+        'init',
+        help='initialize the pswm tool environment')
     init_action_parser.add_argument(
         '--force-init', action='store_true',
         help='force init if pswm was already initialized, need authorization')
     init_action_parser.set_defaults(act_obj=PSWMInitAction())
 
-    list_action_parser = action_subparsers.add_parser('list')
+    list_action_parser = action_subparsers.add_parser(
+        'list',
+        help='list all accounts managed by pswm')
     list_action_parser.add_argument(
         '--sort',
         choices=list(ListPswRecordAction.LIST_RESULT_SORT),
