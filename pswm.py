@@ -96,7 +96,7 @@ class PSWMPasswordPersistence(object):
         if number > len(all_accounts):
             raise NoPasswordRecords(
                 'Has no password record for account %s' % number)
-        return all_accounts[number]
+        return all_accounts[number - 1]
 
     @staticmethod
     def __pad(s):
@@ -263,7 +263,7 @@ class GetPswAction(BasicAction):
             self.one_pass)
         print psw_persistence.get_password(
             psw_persistence.get_account_by_number(
-                self.act_args.number - 1,
+                self.act_args.number,
                 ListPswRecordAction.LIST_RESULT_SORT[self.act_args.sort]
             )
         )
@@ -293,7 +293,7 @@ class SetPswAction(BasicAction):
             self.one_pass)
         psw_persistence.store_password(
             psw_persistence.get_account_by_number(
-                self.act_args.number - 1,
+                self.act_args.number,
                 ListPswRecordAction.LIST_RESULT_SORT[self.act_args.sort]
             ),
             password
