@@ -49,7 +49,7 @@ class PSWMPasswordPersistence(object):
                 self.__pad(account)).encode('hex')
             encrypted_psw = aes_cipher.encrypt(
                 self.__pad(password + '|' + str(time.time()))
-                ).encode('hex')
+            ).encode('hex')
 
             new_file.write(old_file.readline().strip() + '\n')
             for line in old_file:
@@ -71,7 +71,7 @@ class PSWMPasswordPersistence(object):
                 if line.startswith(encrypted_account):
                     return self.__unpad(aes_cipher.decrypt(
                         line.strip().split(':')[1].decode('hex')
-                        )).split('|')[0]
+                    )).split('|')[0]
         return None
 
     def get_all_accounts(self, sort_key=None):
@@ -90,6 +90,13 @@ class PSWMPasswordPersistence(object):
             account_list = sorted(account_list, key=sort_key)
 
         return account_list
+
+    def get_account_by_number(self, number, sort):
+        all_accounts = self.get_all_accounts(sort)
+        if number > len(all_accounts):
+            raise NoPasswordRecords(
+                'Has no password record for account %s' % number)
+        return all_accounts[number]
 
     @staticmethod
     def __pad(s):
@@ -254,21 +261,43 @@ class GetPswAction(BasicAction):
         psw_persistence = PSWMPasswordPersistence(
             self.act_args.file_path,
             self.one_pass)
-        all_accounts = psw_persistence.get_all_accounts(
-            ListPswRecordAction.LIST_RESULT_SORT[self.act_args.sort])
-        if self.act_args.number > len(all_accounts):
-            raise NoPasswordRecords(
-                'Has no password record for account %s' % self.act_args.number)
         print psw_persistence.get_password(
-            all_accounts[self.act_args.number - 1])
+            psw_persistence.get_account_by_number(
+                self.act_args.number - 1,
+                ListPswRecordAction.LIST_RESULT_SORT[self.act_args.sort]
+            )
+        )
 
 
 class SetPswAction(BasicAction):
     def _act_if_inited(self):
+        if self.act_args.domain is not None:
+            self.__setpsw_with_account()
+        elif self.act_args.number is not None:
+            self.__setpsw_with_account_number()
+
+    def _check_args(self):
+        if self.act_args.domain is None and self.act_args.number is None:
+            raise CommandError('Neither domain nor number argument is set')
+
+    def __setpsw_with_account(self):
         password = get_double_checked_pass()
         PSWMPasswordPersistence(
             self.act_args.file_path,
             self.one_pass).store_password(self._get_account(), password)
+
+    def __setpsw_with_account_number(self):
+        password = get_double_checked_pass()
+        psw_persistence = PSWMPasswordPersistence(
+            self.act_args.file_path,
+            self.one_pass)
+        psw_persistence.store_password(
+            psw_persistence.get_account_by_number(
+                self.act_args.number - 1,
+                ListPswRecordAction.LIST_RESULT_SORT[self.act_args.sort]
+            ),
+            password
+        )
 
 
 class ListPswRecordAction(BasicAction):
@@ -276,7 +305,7 @@ class ListPswRecordAction(BasicAction):
         'time': None,
         'domain_alpha': (lambda x: x.split('@')[-1] + x.split('@')[0]),
         'account_alpha': (lambda x: x.split('@')[0] + x.split('@')[-1]),
-        }
+    }
 
     DEFAULT_SORT = 'time'
 
@@ -363,8 +392,17 @@ def parse_arguments():
         '-a', '--account', default='me',
         help='account name [default: %(default)s]')
     setpsw_action_parser.add_argument(
-        '-d', '--domain', required=True,
+        '-d', '--domain',
         help='domain name of the account')
+    setpsw_action_parser.add_argument(
+        '-n', '--number',
+        type=positive_integer,
+        help='store number of the account')
+    setpsw_action_parser.add_argument(
+        '--sort',
+        choices=list(ListPswRecordAction.LIST_RESULT_SORT),
+        default=ListPswRecordAction.DEFAULT_SORT,
+        help='define the order of stored record [default: %(default)s]')
     setpsw_action_parser.set_defaults(act_obj=SetPswAction())
 
     init_action_parser = action_subparsers.add_parser(
